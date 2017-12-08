@@ -385,3 +385,23 @@ func main() {
     page.Screenshot("/tmp/chrome_qiita.jpg")
 }
 */
+
+/* for run funcs by time
+
+func schedule(delay time.Duration) chan bool {
+
+	stop := make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-time.After(delay):
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	return stop
+}
+
+*/
