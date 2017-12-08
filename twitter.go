@@ -1,12 +1,12 @@
 package main
 
 import (
-	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
@@ -19,6 +19,9 @@ var (
 	TweetID []string
 )
 
+const Path = "/Saved/"
+
+// ConnTwitter ...
 // Connect With Twitter.
 // I use env.go 's keys
 func ConnTwitter() *twitter.Client {
@@ -39,6 +42,7 @@ func ConnTwitter() *twitter.Client {
 
 }
 
+// RevPornOut...
 // Search Tweets and Get site's url, and save as excel.
 func RevPornOut(client *twitter.Client, keyword []string) {
 
@@ -114,12 +118,13 @@ func RevPornOut(client *twitter.Client, keyword []string) {
 
 }
 
+// CreateFile ...
 // make txt file
 func CreateFile(url []string) error {
 
-	uuid := CreateUUID()
+	filePath := MakeFolder() + ".txt"
 
-	file, error := os.Create(uuid + ".txt") // Truncates if file already exists, be careful!
+	file, error := os.Create(filePath) // Truncates if file already exists, be careful!
 	if error != nil {
 		log.Fatalf("failed creating file: %s", error)
 		return error
@@ -140,6 +145,7 @@ func CreateFile(url []string) error {
 	return error
 }
 
+// ExcelDown ...
 // make excel file
 func ExcelDown(fileNm, styleStr string, header, values map[string]string) error {
 	xlsx := excelize.NewFile()
@@ -157,12 +163,8 @@ func ExcelDown(fileNm, styleStr string, header, values map[string]string) error 
 	}
 	xlsx.SetCellStyle("Sheet1", "A1", "I1", styleID)
 
-	uuid := CreateUUID()
-	filepath := "/public/temp/" + uuid + ".xlsx"
-
-	os.MkdirAll("/public/temp/", os.ModePerm)
-
-	err = xlsx.SaveAs(filepath)
+	filePath := MakeFolder() + ".xlsx"
+	err = xlsx.SaveAs(filePath)
 	if err != nil {
 		log.Panic("[ERROR] xlsx.SaveAs() : ", err)
 		return err
@@ -171,23 +173,23 @@ func ExcelDown(fileNm, styleStr string, header, values map[string]string) error 
 	return nil
 }
 
-// CreateUUID ...
-// create a random UUID with from RFC 4122
-// adapted from http://github.com/nu7hatch/gouuid
-func CreateUUID() (uuid string) {
-	u := new([16]byte)
-	_, err := rand.Read(u[:])
-	if err != nil {
-		log.Fatalln("Cannot generate UUID", err)
-	}
+// MakeFolder ...
+// make folder for save files
+func MakeFolder() string {
 
-	// 0x40 is reserved variant from RFC 4122
-	u[8] = (u[8] | 0x40) & 0x7F
-	// Set the four most significant bits (bits 12 through 15) of the
-	// time_hi_and_version field to the 4-bit version number.
-	u[6] = (u[6] & 0xF) | (0x4 << 4)
-	uuid = fmt.Sprintf("%x%x%x%x%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:])
-	return
+	t := time.Now()
+	sYear := strconv.Itoa(t.Year())
+	sMonth := strconv.Itoa(int(t.Month()))
+	day := t.Day()
+	hour := strconv.Itoa(t.Hour())
+
+	filename := fmt.Sprintf("%s.log", t.Format("2006010215"))
+	st := sYear + sMonth
+	filePath := Path + st + "/" + strconv.Itoa(day) + "/" + hour + "/" + filename
+
+	os.MkdirAll(Path, os.ModePerm)
+
+	return filePath
 }
 
 /*
@@ -348,4 +350,38 @@ func MakeToken() string {
 
 }
 
+*/
+
+/*
+
+agouti in chrome
+
+$ brew install chromedriver
+$ go get github.com/sclevine/agouti
+$ go run main.go
+// main.go
+package main
+
+import (
+    "github.com/sclevine/agouti"
+    "log"
+)
+
+func main() {
+    driver := agouti.ChromeDriver()
+    if err := driver.Start(); err != nil {
+        log.Fatalf("Failed to start driver:%v", err)
+    }
+    defer driver.Stop()
+
+    page, err := driver.NewPage(agouti.Browser("chrome"))
+    if err != nil {
+        log.Fatalf("Failed to open page:%v", err)
+    }
+
+    if err := page.Navigate("http://qiita.com/"); err != nil {
+        log.Fatalf("Failed to navigate:%v", err)
+    }
+    page.Screenshot("/tmp/chrome_qiita.jpg")
+}
 */
