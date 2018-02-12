@@ -244,9 +244,9 @@ func GetEvent() map[string]string {
 	// 사내 이벤트 게시판 xml로 들어가서 파징
 	parsed := new(ViewEntries)
 	_, body, _ := gorequest.New().Get(
-		"http://ione.interpark.com/gw/app/bult/bbs00000.nsf/wviwnotice?ReadViewEntries&start=1&count=14&restricttocategory=03&page=1||_=1504081645868",
+		"",
 	).Type("xml").AddCookie(
-		&http.Cookie{Name: "LtpaToken", Value: token},
+		&http.Cookie{Name: "", Value: token},
 	).End()
 
 	_ = xml.Unmarshal([]byte(body), &parsed)
@@ -314,7 +314,7 @@ func MakeToken() string {
 	}
 
 	// 접속 (진짜 크롬 창이 뜸)
-	if err := page.Navigate("http://ione.interpark.com/"); err != nil {
+	if err := page.Navigate(""); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -329,7 +329,7 @@ func MakeToken() string {
 	page.FindByClass("loginSubmit").Click()
 
 	// 이벤트 주소 접속
-	if err := page.Navigate("http://ione.interpark.com/gw/app/bult/bbs00000.nsf/wviwnotice?ReadViewEntries&start=1&count=14&restricttocategory=03&page=1||_=1504081645868"); err != nil {
+	if err := page.Navigate(""); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -341,7 +341,7 @@ func MakeToken() string {
 
 	// 토큰 추출
 	for _, v := range cookie {
-		if strings.Contains(v.Name, "LtpaToken") {
+		if strings.Contains(v.Name, "") {
 			return v.Value
 		}
 	}
