@@ -1,27 +1,35 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/xml"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
+	//_ "github.com/sclevine/agouti"
 	"github.com/xuri/excelize"
 )
+
+// 트위터 데이터 파징용 스트럭트
+type Twitter struct {
+	Day        string
+	AuthorName string
+	Text       string
+}
 
 // Global variables
 var (
 	Urls    []string
 	TweetID []string
+	TweetUser []string
 )
 
-const Path = "/Saved/"
-
-// ConnTwitter ...
 // Connect With Twitter.
 // I use env.go 's keys
 func ConnTwitter() *twitter.Client {
@@ -46,26 +54,29 @@ func ConnTwitter() *twitter.Client {
 // Search Tweets and Get site's url, and save as excel.
 func RevPornOut(client *twitter.Client, keyword []string) {
 
-	// search for keywords
+	//var Urls []string
+	//var TweetID []string
+
+	// 키워드 별로 검색 실행 - > go 루틴으로 나눠 병렬처리
 	for _, v := range keyword {
 
-		// 1. Search for keywords
-		// if you're using standard twitter api, you couldn't search for more than 7 days...
+		// 1. 키워드를 검색
+		// 스탠다드에서는 7일 이내 것만 검색 가능
 		search, _, _ := client.Search.Tweets(&twitter.SearchTweetParams{
 			Query: v,
 			Count: 100,
 		})
 
-		// 2. get specific tweets
+		// 2. 검색한 키워드 내에서 나눔
 		for _, v := range search.Statuses {
 
 			url := len(v.Entities.Urls)
 			media := len(v.Entities.Media)
 
-			// get tweets that has url
+			// 주소를 갖고 있는 트윗만 꺼내옴
 			if url != 0 {
 
-				// get rid of spam and useless tweets
+				// 내부에서 사진 등의 링크는 거르고, 실제 링크만 저장
 				TweetID = append(TweetID, v.User.ScreenName)
 				for _, v := range v.Entities.Urls {
 
@@ -81,6 +92,7 @@ func RevPornOut(client *twitter.Client, keyword []string) {
 			}
 			if media != 0 {
 
+				// 내부에서 사진 등의 링크는 거르고, 실제 링크만 저장
 				TweetID = append(TweetID, v.User.ScreenName)
 				for _, v := range v.Entities.Media {
 					site := v.ExpandedURL
@@ -98,11 +110,18 @@ func RevPornOut(client *twitter.Client, keyword []string) {
 
 	}
 
-	// make excel
+	Urls = removeDuplicatesUnordered(Urls)
+}
+
+// MakeExcel ...
+// Make Excel File
+func MakeExcel() {
+
+	// 엑셀 저장
 	header := map[string]string{"A1": "주소"}
 	values := make(map[string]string)
 
-	// excelize https://github.com/360EntSecGroup-Skylar/excelize
+	// 해당 엑셀 라이브러리 https://github.com/360EntSecGroup-Skylar/excelize
 	for k, v := range Urls {
 
 		values["A"+strconv.Itoa((k+2))] = v
@@ -110,21 +129,24 @@ func RevPornOut(client *twitter.Client, keyword []string) {
 
 	style := `{"font":{"bold":true,"italic":true,"family":"Berlin Sans FB Demi","size":20,"color":"#777777"}}`
 
-	//Down as Excel
-	ExcelDown("SiteList.xlsx", style, header, values)
+	if len(Urls) != 0 {
 
-	//Down as File
-	CreateFile(Urls)
+		ExcelDown("SiteList.xlsx", style, header, values)
+
+		// 텍스트파일 저장
+
+		CreateFile(Urls)
+	}
 
 }
 
 // CreateFile ...
-// make txt file
+// Create Excel File
 func CreateFile(url []string) error {
 
-	filePath := MakeFolder() + ".txt"
+	uuid := CreateUUID()
 
-	file, error := os.Create(filePath) // Truncates if file already exists, be careful!
+	file, error := os.Create(uuid + ".txt") // Truncates if file already exists, be careful!
 	if error != nil {
 		log.Fatalf("failed creating file: %s", error)
 		return error
@@ -146,7 +168,7 @@ func CreateFile(url []string) error {
 }
 
 // ExcelDown ...
-// make excel file
+// Download Excel File
 func ExcelDown(fileNm, styleStr string, header, values map[string]string) error {
 	xlsx := excelize.NewFile()
 	for k, v := range header {
@@ -163,8 +185,12 @@ func ExcelDown(fileNm, styleStr string, header, values map[string]string) error 
 	}
 	xlsx.SetCellStyle("Sheet1", "A1", "I1", styleID)
 
-	filePath := MakeFolder() + ".xlsx"
-	err = xlsx.SaveAs(filePath)
+	uuid := CreateUUID()
+	filepath := "/public/temp/" + uuid + ".xlsx"
+
+	os.MkdirAll("/public/temp/", os.ModePerm)
+
+	err = xlsx.SaveAs(filepath)
 	if err != nil {
 		log.Panic("[ERROR] xlsx.SaveAs() : ", err)
 		return err
@@ -173,70 +199,152 @@ func ExcelDown(fileNm, styleStr string, header, values map[string]string) error 
 	return nil
 }
 
-// MakeFolder ...
-// make folder for save files
-func MakeFolder() string {
+// CreateUUID ...
+// create a random UUID with from RFC 4122
+// adapted from http://github.com/nu7hatch/gouuid
+func CreateUUID() (uuid string) {
+	u := new([16]byte)
+	_, err := rand.Read(u[:])
+	if err != nil {
+		log.Fatalln("Cannot generate UUID", err)
+	}
 
-	t := time.Now()
-	sYear := strconv.Itoa(t.Year())
-	sMonth := strconv.Itoa(int(t.Month()))
-	day := t.Day()
-	hour := strconv.Itoa(t.Hour())
-
-	filename := fmt.Sprintf("%s.log", t.Format("2006010215"))
-	st := sYear + sMonth
-	filePath := Path + st + "/" + strconv.Itoa(day) + "/" + hour + "/" + filename
-
-	os.MkdirAll(Path, os.ModePerm)
-
-	return filePath
+	// 0x40 is reserved variant from RFC 4122
+	u[8] = (u[8] | 0x40) & 0x7F
+	// Set the four most significant bits (bits 12 through 15) of the
+	// time_hi_and_version field to the 4-bit version number.
+	u[6] = (u[6] & 0xF) | (0x4 << 4)
+	uuid = fmt.Sprintf("%x%x%x%x%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:])
+	return
 }
+
+// keepDoingSomething will keep trying to doSomething() until either
+// we get a result from doSomething() or the timeout expires
+func removeDuplicatesUnordered(elements []string) []string {
+	encountered := map[string]bool{}
+
+	// Create a map of all unique elements.
+	for v := range elements {
+		encountered[elements[v]] = true
+	}
+
+	// Place all keys from the map into a slice.
+	result := []string{}
+	for key, _ := range encountered {
+		result = append(result, key)
+	}
+	return result
+}
+
+
+// RevPornUserOut ...
+// Search Tweets and Get user ID
+func RevPornUserOut(client *twitter.Client, keyword []string) {
+
+	// 키워드 별로 검색 실행 - > go 루틴으로 나눠 병렬처리
+	for _, v := range keyword {
+
+		// 1. 키워드를 검색
+		// 스탠다드에서는 7일 이내 것만 검색 가능
+		search, _, _ := client.Search.Tweets(&twitter.SearchTweetParams{
+			Query: v,
+			Count: 100,
+		})
+
+		// 2. 검색한 키워드 내에서 나눔
+		for _, v := range search.Statuses {
+
+			id := v.IDStr
+
+			// id가 없지 않을 때
+			if id != nil {
+
+				TweetUser = append(TweetUser, id)
+
+			}
+
+	TweetUser = removeDuplicatesUnordered(TweetUser)
+
+}
+
+// TweetBlockUser ...
+// make user block tweet string
+func TweetBlockUser(client *twitter.Client){
+
+	string := `<신고를 부르는 계정 타래>
+
+	신고에 동참해주시는 분들과 제보해주시는 분들, 모두 고맙습니다😊
+	
+	❌ 미디어주의 ❌
+	
+	특히 아래의 아이디를 집중적으로 신고해주세요.
+	다른 아이디도 po신고wer 부탁드립니다`
+	blank := ""
+	atMark := "@"
+	blockUser = ""
+
+	for _, i := range TweetUser {
+
+		// "make tweets like @id @id "
+
+		blockUser+atMark+blank
+		 
+
+	}
+
+}
+
+
+// 트윗 쓰기
+func SendTweet(client *twitter.Client, str string) {
+
+	client.Statuses.Update(str, nil)
+
+
+}
+
+
 
 /*
-자동신고용
-agouti + selenium으로 트위터 자동 신고기능 제작
-package crawling
 
-import (
-	"encoding/xml"
-	"log"
-	"net/http"
-	env "slackbot/envsetting"
-	"strings"
-
-	"github.com/parnurzeal/gorequest"
-	"github.com/sclevine/agouti"
-)
-
-// 이벤트 게시글 json parsing	용
-type Write struct {
-	Day        string
-	AuthorName string
-	Text       string
-}
-
-type EntryData struct {
-	Key   string `xml:"name,attr"`
-	Value string `xml:"text"`
-}
-
-type ViewEntry struct {
-	Key   string      `xml:"unid,attr"`
-	Value []EntryData `xml:"entrydata"`
-}
-type ViewEntries struct {
-	XMLName     xml.Name    `xml:viewentries`
-	ViewEntries []ViewEntry `xml:"viewentry"`
-}
-
-// 이벤트 얻어오기
-func GetEvent() map[string]string {
-
-	defer func() {
-		if err := recover(); err != nil {
-			return
+	
+	/*
+		{
+		"tweet": {
+		"created_at": "Thu Apr 06 15:24:15 +0000 2017",
+		"id_str": "850006245121695744",
+		"text": "1\/ Today we\u2019re sharing our vision for the future of the Twitter API platform!\nhttps:\/\/t.co\/XweGngmxlP",
+		"user": {
+		"id": 2244994945,
+		"name": "Twitter Dev",
+		"screen_name": "TwitterDev",
+		"location": "Internet",
+		"url": "https:\/\/dev.twitter.com\/",
+		"description": "Your official source for Twitter Platform news, updates & events. Need technical help? Visit https:\/\/twittercommunity.com\/ \u2328\ufe0f #TapIntoTwitter"
+		},
+		"place": {
+		
+		},
+		"entities": {
+		"hashtags": [
+			
+		],
+		"urls": [
+			{
+			"url": "https:\/\/t.co\/XweGngmxlP",
+			"unwound": {
+				"url": "https:\/\/cards.twitter.com\/cards\/18ce53wgo4h\/3xo1c",
+				"title": "Building the Future of the Twitter API Platform"
+			}
+			}
+		],
+		"user_mentions": [
+			
+		]
 		}
-	}()
+	}
+	}
+
 
 	// 인터파크 사내접속을 위한 token 생성
 	token := MakeToken()
@@ -244,9 +352,9 @@ func GetEvent() map[string]string {
 	// 사내 이벤트 게시판 xml로 들어가서 파징
 	parsed := new(ViewEntries)
 	_, body, _ := gorequest.New().Get(
-		"",
+		"http://ione.interpark.com/gw/app/bult/bbs00000.nsf/wviwnotice?ReadViewEntries&start=1&count=14&restricttocategory=03&page=1||_=1504081645868",
 	).Type("xml").AddCookie(
-		&http.Cookie{Name: "", Value: token},
+		&http.Cookie{Name: "LtpaToken", Value: token},
 	).End()
 
 	_ = xml.Unmarshal([]byte(body), &parsed)
@@ -294,6 +402,7 @@ func GetEvent() map[string]string {
 	return returnlist
 }
 
+
 //ltpa 토큰 만들기
 func MakeToken() string {
 
@@ -314,7 +423,7 @@ func MakeToken() string {
 	}
 
 	// 접속 (진짜 크롬 창이 뜸)
-	if err := page.Navigate(""); err != nil {
+	if err := page.Navigate("http://ione.interpark.com/"); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -329,7 +438,7 @@ func MakeToken() string {
 	page.FindByClass("loginSubmit").Click()
 
 	// 이벤트 주소 접속
-	if err := page.Navigate(""); err != nil {
+	if err := page.Navigate("http://ione.interpark.com/gw/app/bult/bbs00000.nsf/wviwnotice?ReadViewEntries&start=1&count=14&restricttocategory=03&page=1||_=1504081645868"); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -341,7 +450,7 @@ func MakeToken() string {
 
 	// 토큰 추출
 	for _, v := range cookie {
-		if strings.Contains(v.Name, "") {
+		if strings.Contains(v.Name, "LtpaToken") {
 			return v.Value
 		}
 	}
@@ -350,58 +459,6 @@ func MakeToken() string {
 
 }
 
-*/
 
-/*
-
-agouti in chrome
-
-$ brew install chromedriver
-$ go get github.com/sclevine/agouti
-$ go run main.go
-// main.go
-package main
-
-import (
-    "github.com/sclevine/agouti"
-    "log"
-)
-
-func main() {
-    driver := agouti.ChromeDriver()
-    if err := driver.Start(); err != nil {
-        log.Fatalf("Failed to start driver:%v", err)
-    }
-    defer driver.Stop()
-
-    page, err := driver.NewPage(agouti.Browser("chrome"))
-    if err != nil {
-        log.Fatalf("Failed to open page:%v", err)
-    }
-
-    if err := page.Navigate("http://qiita.com/"); err != nil {
-        log.Fatalf("Failed to navigate:%v", err)
-    }
-    page.Screenshot("/tmp/chrome_qiita.jpg")
-}
-*/
-
-/* for run funcs by time
-
-func schedule(delay time.Duration) chan bool {
-
-	stop := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-time.After(delay):
-			case <-stop:
-				return
-			}
-		}
-	}()
-
-	return stop
-}
 
 */
